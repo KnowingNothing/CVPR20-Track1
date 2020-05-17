@@ -8,6 +8,8 @@ import scipy.io as scio
 from glob import glob
 from PIL import Image
 from torch.utils.data import Dataset
+from PIL import ImageFile
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 ts = time.localtime(time.time())
 year, mon, day, hour, mini, sec = ts.tm_year, ts.tm_mon, ts.tm_mday, ts.tm_hour, ts.tm_min, ts.tm_sec
@@ -26,15 +28,15 @@ class DetDataset(Dataset):
     self.dtype = dtype
     self.transform = transform
     if task == "train":
-      self.img_dir = os.path.join(root_dir, "Data/DET/train")
-      self.label_dir = os.path.join(root_dir, "Annotations/DET/train")
-      self.xml_files = sorted(glob(os.path.join(self.label_dir, 'ILSVRC2013_train/*/*.xml')))
-      xml_files_2014 = sorted(glob(os.path.join(self.label_dir, '*/*.xml')))
+      self.img_dir = os.path.join(root_dir, "Data", "DET", "train")
+      self.label_dir = os.path.join(root_dir, "Annotations", "DET", "train")
+      self.xml_files = sorted(glob(os.path.join(self.label_dir, "ILSVRC2013_train", "*", "*.xml")))
+      xml_files_2014 = sorted(glob(os.path.join(self.label_dir, "*", "*.xml")))
       self.xml_files.extend(xml_files_2014)
       logging.info("totally %d xml files for training" % len(self.xml_files))
     elif task == "val":
-      self.img_dir = os.path.join(root_dir, "Data/DET/val")
-      self.label_dir = os.path.join(root_dir, "Annotations/DET/val")
+      self.img_dir = os.path.join(root_dir, "Data", "DET", "val")
+      self.label_dir = os.path.join(root_dir, "Annotations", "DET", "val")
       self.xml_files = sorted(glob(os.path.join(self.label_dir, '*.xml')))
       logging.info("totally %d xml files for validation" % len(self.xml_files))
     else:
@@ -76,16 +78,16 @@ class DetDataset(Dataset):
       if source[0][0].text=='ILSVRC_2013':
         filename = root.findall('filename')[0].text
         folder = root.findall('folder')[0].text
-        pic_path = self.img_dir+'/ILSVRC2013_train/'+folder+'/'+filename+'.JPEG'
+        pic_path = os.path.join(self.img_dir, 'ILSVRC2013_train', folder, filename+'.JPEG')
         imt = Image.open(pic_path)
       else:
         filename = root.findall('filename')[0].text
         folder = root.findall('folder')[0].text
-        pic_path = self.img_dir+"/"+folder+'/'+filename+'.JPEG'
+        pic_path = os.path.join(self.img_dir, folder, filename+'.JPEG')
         imt = Image.open(pic_path)
     elif self.task == "val":
       filename = root.findall('filename')[0].text
-      pic_path = self.img_dir+'/'+filename+'.JPEG'
+      pic_path = os.path.join(self.img_dir, filename+'.JPEG')
       imt = Image.open(pic_path)
     else:
       raise ValueError("No test set")
@@ -103,9 +105,67 @@ class DetDataset(Dataset):
     # rgba
     if imt.shape[2] != 3:
       imt = imt[:,:,:3]
-
+    # CHW
     imt = imt.permute(2, 0, 1)
     imt = imt / 255
     return {"data": imt, "label": label}
     
+
+class DetPixelAnnotationSet(Dataset):
+  """
+  DET Pixel Level Annotation Dataset
+  """
+  def __init__(self, root_dir="./", task="val", transform=None, dtype="float32"):
+    assert task in ["val", "test"]
+    self.task = task
+    self.dtype = dtype
+    self.transform = transform
+    self.img_dir = os.path.join(root_dir, "LID_track1_imageset", "LID_track1", task)
+    self.label_dir = os.path.join(root_dir, "LID_track1_annotations", "track1_"+task+"_annotations_raw")
+    self.png_files = sorted(glob(os.path.join(self.label_dir, '*.png')))
+    initial_num = len(self.png_files)
+    logging.info("Pixel level dataset totally %d xml files" % initial_num)
+    self.clear_dataset()
+    logging.info("However, %d files not found" % (initial_num - len(self.png_files)))
+
+  def clear_dataset(self):
+    new_files = []
+    for png_file in self.png_files:
+      file_name = os.path.split(png_file)[1].split(".")[0] + ".JPEG"
+      img_path = os.path.join(self.img_dir, file_name)
+
+      if (os.path.exists(img_path) and os.path.isfile(img_path)):
+        try:
+          Image.open(img_path)
+          new_files.append(png_file)
+        except Exception:
+          pass
+    self.png_files = new_files
+
+  def __len__(self):
+    return len(self.png_files)
+
+  def __getitem__(self, idx):
+    png_file = self.png_files[idx]
+    file_name = os.path.split(png_file)[1].split(".")[0] + ".JPEG"
+    img_path = os.path.join(self.img_dir, file_name)
+
+    imt = Image.open(img_path)
+    imt = imt.resize([224, 224], resample=Image.BICUBIC)
+    imt = np.array(imt).astype(self.dtype)
+    imt = torch.tensor(imt)
+    if len(imt.shape) != 3:
+      logging.warn("image shape mismatch: %s, shape: %s" % (img_path, str(imt.shape)))
+    if len(imt.shape) == 2:
+      imt = imt.unsqueeze(-1).expand(*imt.shape, 3)
+    # rgba
+    if imt.shape[2] != 3:
+      imt = imt[:,:,:3]
+    # CHW
+    imt = imt.permute(2, 0, 1)
+    imt = imt / 255
+
+    mask = Image.open(png_file)
+    mask = np.array(mask)
+    return {"data": imt, "mask": mask}
     

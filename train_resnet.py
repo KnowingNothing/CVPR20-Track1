@@ -19,6 +19,10 @@ def main():
 
   for batch_data in train_loader:
     count_batch += 1
+    output = model(batch_data["data"])
+    print(output.shape)
+    print(batch_data["label"].shape)
+    break
   
   print("Done! Totally %d batches" % count_batch)
 

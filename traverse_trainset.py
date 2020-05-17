@@ -10,8 +10,6 @@ batch_size = 8
 
 
 def main():
-  model = resnet50(pretrained=False, num_classes=201)
-
   dataset = DetDataset("/home/E/dataset/ILSVRC", task="train")
 
   train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)

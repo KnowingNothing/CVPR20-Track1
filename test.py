@@ -13,6 +13,17 @@ def test1():
   im.save("converted_rgb.JPEG", "JPEG")
 
 
+def test2():
+  # see an annotation png file
+  im = Image.open("./ILSVRC2012_val_00000026.png")
+  im = np.array(im)
+  print(im.shape)
+  print(im.dtype)
+  print(im.max())
+  print(im.min())
+
+
 
 if __name__ == "__main__":
   test1()
+  test2()
