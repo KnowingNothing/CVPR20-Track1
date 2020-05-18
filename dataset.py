@@ -72,6 +72,8 @@ class DetDataset(Dataset):
       object_name = object[0].text
       label_id = self.name_to_detlabelid[object_name]
       label[label_id] = 1
+    # background
+    label[0] = 1
 
     # img
     if self.task == "train":

@@ -1,4 +1,6 @@
+import torch
 import numpy as np
+import torch.nn.functional as F
 from PIL import Image
 
 
@@ -23,7 +25,13 @@ def test2():
   print(im.min())
 
 
+def test3():
+  img = torch.rand([4, 5])
+  y = torch.randint(0, 2, [4, 5])
+  loss = F.multilabel_soft_margin_loss(img, y)
+
 
 if __name__ == "__main__":
   test1()
   test2()
+  test3()
