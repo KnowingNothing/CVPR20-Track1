@@ -153,7 +153,7 @@ class DetPixelAnnotationSet(Dataset):
     img_path = os.path.join(self.img_dir, file_name)
 
     imt = Image.open(img_path)
-    imt = imt.resize([224, 224], resample=Image.BICUBIC)
+    # imt = imt.resize([224, 224], resample=Image.BICUBIC)
     imt = np.array(imt).astype(self.dtype)
     imt = torch.tensor(imt)
     if len(imt.shape) != 3:
