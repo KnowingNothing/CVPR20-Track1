@@ -54,7 +54,7 @@ class Net(nn.Module):
 
         x = torch.mean(x.view(x.size(0), x.size(1), -1), -1).unsqueeze(-1).unsqueeze(-1)
 
-        x = self.classifier(x)
+        x = self.classifier(x).squeeze()
 
         return x
 

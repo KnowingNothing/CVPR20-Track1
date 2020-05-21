@@ -8,19 +8,17 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from dilated_resnet import CAM, Net
 from dataset import DetDataset
+import argparse
 
 
 dir_name = "train_log"
-model_dir = "trained_model"
 ts = time.localtime(time.time())
 year, mon, day, hour, mini, sec = ts.tm_year, ts.tm_mon, ts.tm_mday, ts.tm_hour, ts.tm_min, ts.tm_sec
 if not (os.path.exists(dir_name) and os.path.isdir(dir_name)):
   os.mkdir(dir_name)
-if not (os.path.exists(model_dir) and os.path.isdir(model_dir)):
-  os.mkdir(model_dir)
 date_str = "%d_%d_%d-%d_%d_%d" % (year, mon, day, hour, mini, sec)
 file_name = date_str + "-log.log"
-model_name = date_str + "-model.pkl"
+
 
 formatter = logging.Formatter("[%(levelname)s] %(message)s (%(asctime)s)")
 
@@ -39,7 +37,7 @@ logger.addHandler(sh)
 
 
 epoch = 1
-batch_size = 8
+batch_size = 48
 num_classes = 200  # don't include background
 dtype = "float32"
 map_size = 28
@@ -51,9 +49,10 @@ wd2 = 0.002
 loss_report = 100
 val_report = 1000
 save_report = 100
+gpu_id = -1
 
 
-def validate(model, dataloader, test_num=None):
+def validate(model, dataloader, test_num=None, gpu_id=-1):
   model.eval()
   # valid_target = np.ones([batch_size, map_size, map_size]).astype(dtype)
   # valid_target = torch.tensor(valid_target).cuda()
@@ -62,29 +61,31 @@ def validate(model, dataloader, test_num=None):
   total_mediate_match = 0
   total_soft_match = 0
   total_num = 0
-  for batch_data in dataloader:
-    count_batch += 1
-    output = model(batch_data["data"].cuda())
-    output = output.cpu()
-    # don't include background
-    label = batch_data["label"][1:].cpu().int()
-    max_k = label.sum(dim=-1).max()
-    # print(max_k)
-    bias = torch.topk(output, max_k)[0][:, -1].unsqueeze(-1)
-    mark = output >= bias
-    match = label * mark.int()
-    count_match = match.sum(dim=-1)
-    hard_accurate = (count_match == label.sum(dim=-1)).sum()
-    mediate_accurate = (count_match >= label.sum(dim=-1) * 0.95).sum()
-    soft_accurate = (count_match > 0).sum()
+  with torch.no_grad():
+    for batch_data in dataloader:
+      count_batch += 1
+      output = model(batch_data["data"].cuda(gpu_id))
+      output = output.cpu()
+      # don't include background
+      label = batch_data["label"][:,1:].cpu().int()
+      max_k = label.sum(dim=-1).max()
+      # print(max_k)
+      # print(output.shape)
+      bias = torch.topk(output, max_k)[0][:, -1].unsqueeze(-1)
+      mark = output >= bias
+      match = label * mark.int()
+      count_match = match.sum(dim=-1)
+      hard_accurate = (count_match == label.sum(dim=-1)).sum()
+      mediate_accurate = (count_match >= label.sum(dim=-1) * 0.95).sum()
+      soft_accurate = (count_match > 0).sum()
 
-    total_hard_match += hard_accurate.item()
-    total_mediate_match += mediate_accurate.item()
-    total_soft_match += soft_accurate.item()
-    total_num += batch_data["data"].size(0)
+      total_hard_match += hard_accurate.item()
+      total_mediate_match += mediate_accurate.item()
+      total_soft_match += soft_accurate.item()
+      total_num += batch_data["data"].size(0)
 
-    if test_num is not None and count_batch >= test_num:
-      break
+      if test_num is not None and count_batch >= test_num:
+        break
 
   logger.info("validation on %d samples.\naccuracy: hard: %f, mediate: %f, soft: %f" % (
         total_num,
@@ -97,7 +98,24 @@ def validate(model, dataloader, test_num=None):
 
 
 def main():
-  model = Net(num_classes=num_classes).cuda()
+  parser = argparse.ArgumentParser()
+  parser.add_argument("-m", "--model", help="train from given model", type=str, default="")
+  parser.add_argument("-d", "--data", help="data root path", type=str, default="/home/E/dataset/ILSVRC")
+  parser.add_argument("-g", "--gpu", help="gpu id", type=int, default=0)
+  args = parser.parse_args()
+
+  gpu_id = args.gpu
+
+  model = Net(num_classes=num_classes).cuda(gpu_id)
+  if args.model != "":
+    print("Using model from", args.model)
+    model.load_state_dict(torch.load(args.model))
+    model_dir, model_name = os.path.split(args.model)
+  else:
+    model_dir, model_name = "trained_model", date_str + "-model.pkl"
+
+  if not (os.path.exists(model_dir) and os.path.isdir(model_dir)):
+    os.mkdir(model_dir)
 
   param_groups = model.trainable_parameters()
   optimizer = torch.optim.Adam([
@@ -107,15 +125,15 @@ def main():
 
   print("Get dataset...")
 
-  trainset = DetDataset("/home/E/dataset/ILSVRC", task="train", dtype=dtype)
+  trainset = DetDataset(args.data, task="train", dtype=dtype)
 
   train_loader = DataLoader(trainset, batch_size=batch_size, shuffle=True)
 
-  valset = DetDataset("/home/E/dataset/ILSVRC", task="val", dtype=dtype)
+  valset = DetDataset(args.data, task="val", dtype=dtype)
 
   val_loader = DataLoader(valset, batch_size=batch_size, shuffle=True)
 
-  print("Dataset ready.")
+  print("Dataset (%s) ready." % args.data)
   count_batch = 0
   # valid_target = np.ones([batch_size, map_size, map_size]).astype(dtype)
   # valid_target = torch.tensor(valid_target).cuda()
@@ -127,8 +145,8 @@ def main():
     logger.info("ep=%d:" % (ep+1))
     for batch_data in train_loader:
       count_batch += 1
-      output = model(batch_data["data"].cuda())
-      label = batch_data["label"][1:].cuda()  # do not use background
+      output = model(batch_data["data"].cuda(gpu_id))
+      label = batch_data["label"][:, 1:].cuda(gpu_id)  # do not use background
       # classification loss
       # no reduction on batch dim
       class_loss = F.multilabel_soft_margin_loss(output, label)
@@ -150,14 +168,14 @@ def main():
 
       if count_batch % val_report == 0:
         logger.info("validating...")
-        validate(model, val_loader, test_num=10000)
+        validate(model, val_loader, test_num=10000, gpu_id=gpu_id)
 
       if count_batch % save_report == 0:
         logger.info("saving model to %s..." % model_name)
         torch.save(model.state_dict(), os.path.join(model_dir, model_name))
     
     logger.info("testing after one epoch...")
-    validate(model, val_loader)
+    validate(model, val_loader, gpu_id=gpu_id)
 
   print("Done! Totally %d batches" % count_batch)
 
