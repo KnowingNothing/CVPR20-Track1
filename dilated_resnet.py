@@ -86,13 +86,13 @@ class CAM(Net):
 
         x = self.stage4(x)
 
-        x1 = F.conv2d(x, self.d1.weight, bias=None, stride=1, padding=1, dilation=1)
-        x2 = F.conv2d(x, self.d1.weight, bias=None, stride=1, padding=2, dilation=2)
-        x3 = F.conv2d(x, self.d1.weight, bias=None, stride=1, padding=3, dilation=3)
-        x6 = F.conv2d(x, self.d1.weight, bias=None, stride=1, padding=6, dilation=6)
-        x9 = F.conv2d(x, self.d1.weight, bias=None, stride=1, padding=9, dilation=9)
+        x = F.conv2d(x, self.d1.weight, bias=None, stride=1, padding=1, dilation=1)
+        # x2 = F.conv2d(x, self.d1.weight, bias=None, stride=1, padding=2, dilation=2)
+        # x3 = F.conv2d(x, self.d1.weight, bias=None, stride=1, padding=3, dilation=3)
+        # x6 = F.conv2d(x, self.d1.weight, bias=None, stride=1, padding=6, dilation=6)
+        # x9 = F.conv2d(x, self.d1.weight, bias=None, stride=1, padding=9, dilation=9)
 
-        x = x1 + (x2 + x3 + x6 + x9) / 4
+        # x = x1 + (x2 + x3 + x6 + x9) / 4
 
         x = F.conv2d(x, self.classifier.weight)
 
